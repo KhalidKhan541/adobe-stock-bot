@@ -1,0 +1,27 @@
+{
+  "newsletter_name": "Adobe Stock Bot",
+  "images_per_day": 33,
+  "target_resolution": {"width": 3840, "height": 2160},
+  "generation_resolution": {"width": 1024, "height": 1024},
+  "upscale_factor": 2,
+  "format": "jpeg",
+  "quality": 95,
+  "max_keywords": 25,
+  "max_title_length": 200,
+  "niche_focus": [
+    "specialized_environments",
+    "sustainability",
+    "conceptual_symbolic",
+    "industrial",
+    "business_corporate",
+    "technology",
+    "healthcare",
+    "education"
+  ],
+  "pollinations_model": "flux",
+  "groq_model": "llama-3.3-70b-versatile",
+  "sftp_host": "",
+  "sftp_username": "",
+  "sftp_password": "",
+  "sftp_port": 22
+}

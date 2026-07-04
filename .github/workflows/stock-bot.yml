@@ -2,7 +2,7 @@ name: Wirestock Bot
 
 on:
   schedule:
-    - cron: "0 5 * * *" # 5 AM UTC daily (10 AM PKT)
+    - cron: "0 1,7,13,19 * * *" # 4x daily: 1AM, 7AM, 1PM, 7PM UTC (6AM, 12PM, 6PM, 12AM PKT)
   workflow_dispatch:
 
 concurrency:

@@ -268,7 +268,9 @@ def run_pipeline() -> dict:
         try:
             logger.info("[%d/%d] Generating image: %s", idx, len(selected), title)
             raw_path = IMAGES_DIR / f"{safe_name}_raw.png"
-            success = generate_image(prompt_text, str(raw_path))
+            gen_width = config.get("generation_resolution", {}).get("width", 2048)
+            gen_height = config.get("generation_resolution", {}).get("height", 2048)
+            success = generate_image(prompt_text, str(raw_path), width=gen_width, height=gen_height)
             if not success:
                 raise RuntimeError("Image generation failed")
 

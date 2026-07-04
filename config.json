@@ -1,8 +1,8 @@
 {
   "newsletter_name": "Wirestock Bot",
   "images_per_day": 33,
-  "target_resolution": {"width": 3840, "height": 2160},
-  "generation_resolution": {"width": 1024, "height": 1024},
+  "target_resolution": {"width": 4000, "height": 4000},
+  "generation_resolution": {"width": 2048, "height": 2048},
   "upscale_factor": 2,
   "format": "jpeg",
   "quality": 95,

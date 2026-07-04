@@ -1,5 +1,5 @@
 {
-  "newsletter_name": "Adobe Stock Bot",
+  "newsletter_name": "Wirestock Bot",
   "images_per_day": 33,
   "target_resolution": {"width": 3840, "height": 2160},
   "generation_resolution": {"width": 1024, "height": 1024},
@@ -9,19 +9,15 @@
   "max_keywords": 25,
   "max_title_length": 200,
   "niche_focus": [
-    "specialized_environments",
-    "sustainability",
-    "conceptual_symbolic",
-    "industrial",
-    "business_corporate",
+    "business",
+    "nature",
     "technology",
-    "healthcare",
-    "education"
+    "abstract",
+    "lifestyle",
+    "food",
+    "travel",
+    "people"
   ],
   "pollinations_model": "flux",
-  "groq_model": "llama-3.3-70b-versatile",
-  "sftp_host": "",
-  "sftp_username": "",
-  "sftp_password": "",
-  "sftp_port": 22
+  "groq_model": "llama-3.3-70b-versatile"
 }

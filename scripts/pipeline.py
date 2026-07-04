@@ -1,25 +1,26 @@
-"""Main pipeline orchestrator for the Adobe Stock bot."""
+"""Main pipeline orchestrator — generates images + metadata, packs into Wirestock-ready ZIP."""
 
 import csv
+import io
 import json
 import logging
 import os
 import random
 import smtplib
 import sys
+import zipfile
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
+from email import encoders
 from pathlib import Path
 
-# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.image_generator import generate_image
 from scripts.image_processor import process_image
 from scripts.metadata_generator import generate_metadata
-from scripts.csv_generator import generate_csv
-from scripts.sftp_uploader import upload_batch
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,25 +34,12 @@ PROMPT_LIBRARY_PATH = BASE_DIR / "prompts" / "prompt_library.py"
 LOG_PATH = BASE_DIR / "data" / "stock_log.json"
 OUTPUT_DIR = BASE_DIR / "output"
 IMAGES_DIR = OUTPUT_DIR / "images"
-METADATA_DIR = OUTPUT_DIR / "metadata"
-CSV_DIR = OUTPUT_DIR / "csv"
-
-REQUIRED_ENV_VARS = [
-    "GROQ_API_KEY",
-    "GMAIL_APP_PASSWORD",
-    "SENDER_EMAIL",
-    "RECIPIENT_EMAIL",
-    "SFTP_HOST",
-    "SFTP_USERNAME",
-    "SFTP_PASSWORD",
-]
+ZIP_DIR = OUTPUT_DIR / "zip"
 
 TARGET_PROMPT_COUNT = 33
-TARGET_MIN_DIMENSION_MP = 4  # 4 megapixels minimum
 
 
 def _load_config() -> dict:
-    """Load configuration from config.json."""
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(f"Config not found: {CONFIG_PATH}")
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -59,23 +47,18 @@ def _load_config() -> dict:
 
 
 def _load_prompt_library() -> list[dict]:
-    """Dynamically import the prompt library and return the prompts list."""
     import importlib.util
-
     spec = importlib.util.spec_from_file_location("prompt_library", PROMPT_LIBRARY_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-
     if not hasattr(module, "PROMPTS"):
         raise AttributeError("prompt_library.py must define a PROMPTS list")
-
     prompts = module.PROMPTS
     logger.info("Loaded %d prompts from library", len(prompts))
     return prompts
 
 
 def _select_balanced_prompts(prompts: list[dict], count: int) -> list[dict]:
-    """Select prompts balanced across niches using round-robin distribution."""
     niche_map: dict[str, list[dict]] = {}
     for p in prompts:
         niche = p.get("niche", "general")
@@ -110,13 +93,11 @@ def _select_balanced_prompts(prompts: list[dict], count: int) -> list[dict]:
 
 
 def _ensure_dirs() -> None:
-    """Create output directories if they don't exist."""
-    for d in [OUTPUT_DIR, IMAGES_DIR, METADATA_DIR, CSV_DIR]:
+    for d in [OUTPUT_DIR, IMAGES_DIR, ZIP_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
 
 def _append_log(entry: dict) -> None:
-    """Append a run entry to the stock_log.json file."""
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     log_data = []
     if LOG_PATH.exists():
@@ -127,18 +108,87 @@ def _append_log(entry: dict) -> None:
         json.dump(log_data, f, indent=2, default=str)
 
 
-def _check_env_vars() -> None:
-    """Verify all required environment variables are set."""
-    missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
-    if missing:
-        raise EnvironmentError(f"Missing environment variables: {', '.join(missing)}")
+def _create_metadata_csv(items: list[dict], csv_path: str) -> str:
+    """Create a CSV with metadata for all images (Wirestock format)."""
+    fieldnames = ["filename", "title", "description", "keywords", "category"]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for item in items:
+            if item.get("status") == "success" and item.get("metadata"):
+                writer.writerow({
+                    "filename": item["final_filename"],
+                    "title": item["metadata"].get("title", ""),
+                    "description": item["metadata"].get("description", ""),
+                    "keywords": item["metadata"].get("keywords", ""),
+                    "category": item["metadata"].get("category", ""),
+                })
+    return csv_path
+
+
+def _create_zip(images_dir: Path, csv_path: str, zip_path: Path) -> Path:
+    """Pack all final JPEG images + metadata CSV into a single ZIP."""
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for img_file in sorted(images_dir.glob("*.jpg")):
+            zf.write(img_file, f"images/{img_file.name}")
+            logger.info("Added to ZIP: images/%s", img_file.name)
+
+        if os.path.exists(csv_path):
+            zf.write(csv_path, "metadata.csv")
+            logger.info("Added to ZIP: metadata.csv")
+
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    logger.info("Created ZIP: %s (%.1f MB)", zip_path, size_mb)
+    return zip_path
+
+
+def _send_email_with_zip(report: str, zip_path: Path) -> bool:
+    """Send email with the ZIP file attached."""
+    sender = os.environ["SENDER_EMAIL"]
+    recipient = os.environ["RECIPIENT_EMAIL"]
+    password = os.environ["GMAIL_APP_PASSWORD"]
+
+    msg = MIMEMultipart()
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg["Subject"] = f"Wirestock Upload Package — {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+
+    body = f"""Wirestock Upload Package
+
+{report}
+
+INSTRUCTIONS:
+1. Log in to wirestock.io
+2. Click Upload
+3. Select this ZIP file
+4. Wirestock will auto-distribute to Shutterstock, Adobe Stock, Getty, Alamy, Freepik
+
+Your images are ready to upload!
+"""
+    msg.attach(MIMEText(body, "plain"))
+
+    with open(zip_path, "rb") as f:
+        part = MIMEBase("application", "zip")
+        part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={zip_path.name}")
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender, password)
+            server.sendmail(sender, recipient, msg.as_string())
+        logger.info("Email with ZIP sent to %s", recipient)
+        return True
+    except Exception as exc:
+        logger.error("Failed to send email: %s", exc)
+        return False
 
 
 def generate_report(results: dict) -> str:
-    """Generate a human-readable daily report from pipeline results."""
     lines = [
         "=" * 50,
-        f"  ADOBE STOCK BOT — Daily Report",
+        "  WIRESTOCK BOT — Daily Report",
         f"  {results['date']}",
         "=" * 50,
         "",
@@ -154,55 +204,17 @@ def generate_report(results: dict) -> str:
         lines.append(f"  [{status_icon}] {i:02d}. {item['title'][:60]}")
         if item.get("error"):
             lines.append(f"       Error: {item['error']}")
-        if item.get("csv_path"):
-            lines.append(f"       CSV:   {item['csv_path']}")
+
     lines.append("")
-
-    if results["upload_results"]:
-        upload_ok = sum(1 for u in results["upload_results"] if u.get("success"))
-        upload_fail = len(results["upload_results"]) - upload_ok
-        lines.extend([
-            "--- SFTP Upload ---",
-            f"  Uploaded:  {upload_ok}",
-            f"  Failed:    {upload_fail}",
-            "",
-        ])
-
-    lines.extend([
-        "--- Timing ---",
-        f"  Duration:  {results.get('duration_seconds', 'N/A')}s",
-        "",
-        "=" * 50,
-    ])
+    lines.append(f"ZIP file: {results.get('zip_path', 'N/A')}")
+    lines.append(f"Email sent: {results.get('email_sent', False)}")
+    lines.append(f"Duration: {results.get('duration_seconds', 'N/A')}s")
+    lines.append("")
+    lines.append("=" * 50)
     return "\n".join(lines)
 
 
-def send_report_email(report: str) -> bool:
-    """Send the daily report via Gmail SMTP. Returns True on success."""
-    sender = os.environ["SENDER_EMAIL"]
-    recipient = os.environ["RECIPIENT_EMAIL"]
-    password = os.environ["GMAIL_APP_PASSWORD"]
-
-    msg = MIMEMultipart()
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg["Subject"] = f"Adobe Stock Bot — Report {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-    msg.attach(MIMEText(report, "plain"))
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(sender, password)
-            server.sendmail(sender, recipient, msg.as_string())
-        logger.info("Report email sent to %s", recipient)
-        return True
-    except Exception as exc:
-        logger.error("Failed to send email: %s", exc)
-        return False
-
-
 def run_pipeline() -> dict:
-    """Execute the full daily pipeline. Returns a results dict."""
-    _check_env_vars()
     _ensure_dirs()
 
     results = {
@@ -211,7 +223,7 @@ def run_pipeline() -> dict:
         "success": 0,
         "failed": 0,
         "items": [],
-        "upload_results": [],
+        "zip_path": None,
         "email_sent": False,
         "duration_seconds": 0,
     }
@@ -248,46 +260,36 @@ def run_pipeline() -> dict:
             "status": "success",
             "title": title,
             "niche": niche,
-            "filename": safe_name,
-            "image_path": None,
-            "processed_path": None,
-            "metadata_path": None,
-            "csv_path": None,
+            "final_filename": f"{safe_name}.jpg",
+            "metadata": None,
             "error": None,
         }
 
         try:
-            # Step 1: Generate image
             logger.info("[%d/%d] Generating image: %s", idx, len(selected), title)
             raw_path = IMAGES_DIR / f"{safe_name}_raw.png"
-            generate_image(prompt_text, str(raw_path), config=config)
-            item_result["image_path"] = str(raw_path)
+            success = generate_image(prompt_text, str(raw_path))
+            if not success:
+                raise RuntimeError("Image generation failed")
 
-            # Step 2: Process image
             logger.info("[%d/%d] Processing image", idx, len(selected))
-            processed_path = IMAGES_DIR / f"{safe_name}_processed.jpg"
-            process_image(str(raw_path), str(processed_path))
-            item_result["processed_path"] = str(processed_path)
+            processed = process_image(str(raw_path), str(IMAGES_DIR))
+            if not processed["success"]:
+                raise RuntimeError(f"Image processing failed: {processed['error']}")
 
-            # Step 3: Generate metadata
+            final_path = Path(processed["output"])
+            clean_final = IMAGES_DIR / f"{safe_name}.jpg"
+            if final_path != clean_final:
+                os.replace(str(final_path), str(clean_final))
+
             logger.info("[%d/%d] Generating metadata", idx, len(selected))
-            metadata_path = METADATA_DIR / f"{safe_name}_metadata.json"
             metadata = generate_metadata(
                 prompt_text=prompt_text,
                 title=title,
-                image_path=str(processed_path),
+                image_path=str(clean_final),
                 niche=niche,
             )
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2)
-            item_result["metadata_path"] = str(metadata_path)
-
-            # Step 4: Generate CSV row
-            logger.info("[%d/%d] Generating CSV", idx, len(selected))
-            csv_path = CSV_DIR / f"{safe_name}.csv"
-            generate_csv(metadata, str(csv_path))
-            item_result["csv_path"] = str(csv_path)
-
+            item_result["metadata"] = metadata
             results["success"] += 1
             logger.info("[%d/%d] SUCCESS: %s", idx, len(selected), title)
 
@@ -299,27 +301,25 @@ def run_pipeline() -> dict:
 
         results["items"].append(item_result)
 
-    # Step 5: Upload to Adobe Stock via SFTP
-    logger.info("Starting SFTP upload...")
-    csv_files = [item["csv_path"] for item in results["items"] if item.get("csv_path")]
-    if csv_files:
-        try:
-            for csv_path in csv_files:
-                upload_batch(local_dir=str(Path(csv_path).parent), remote_dir="/incoming")
-            results["upload_results"] = [{"success": True, "csv_count": len(csv_files)}]
-            logger.info("SFTP upload completed: %d CSV files", len(csv_files))
-        except Exception as exc:
-            logger.error("SFTP upload failed: %s", exc)
-            results["upload_results"] = [{"success": False, "error": str(exc)}]
+    csv_path = str(ZIP_DIR / "metadata.csv")
+    _create_metadata_csv(results["items"], csv_path)
 
-    # Step 6: Generate and send report
+    timestamp_zip = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    zip_path = ZIP_DIR / f"wirestock_upload_{timestamp_zip}.zip"
+    _create_zip(IMAGES_DIR, csv_path, zip_path)
+    results["zip_path"] = str(zip_path)
+
     elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
     results["duration_seconds"] = round(elapsed, 1)
 
     report = generate_report(results)
     logger.info("\n%s", report)
 
-    results["email_sent"] = send_report_email(report)
+    try:
+        results["email_sent"] = _send_email_with_zip(report, zip_path)
+    except Exception as exc:
+        logger.error("Email failed: %s", exc)
+        results["email_sent"] = False
 
     _append_log(results)
 

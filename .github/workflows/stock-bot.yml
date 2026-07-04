@@ -1,4 +1,4 @@
-name: Adobe Stock Bot
+name: Wirestock Bot
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: stock-bot
+  group: wirestock-bot
   cancel-in-progress: false
 
 env:
@@ -14,9 +14,6 @@ env:
   GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
   SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
   RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-  SFTP_HOST: ${{ secrets.SFTP_HOST }}
-  SFTP_USERNAME: ${{ secrets.SFTP_USERNAME }}
-  SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
 
 jobs:
   run:
@@ -46,6 +43,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/stock_log.json output/
+          git add data/stock_log.json
           git diff --cached --quiet || git commit -m "Update stock logs [skip ci]"
           git push

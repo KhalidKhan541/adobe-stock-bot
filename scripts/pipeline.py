@@ -116,22 +116,49 @@ def _create_metadata_csv(items: list[dict], csv_path: str) -> str:
         writer.writeheader()
         for item in items:
             if item.get("status") == "success" and item.get("metadata"):
-                writer.writerow({
+                meta = item["metadata"]
+                # Handle keywords - could be list or string
+                keywords = meta.get("keywords_csv", "")
+                if not keywords:
+                    kw_list = meta.get("keywords", [])
+                    if isinstance(kw_list, list):
+                        keywords = ", ".join([k for k in kw_list if k])
+                    else:
+                        keywords = str(kw_list)
+                
+                row = {
                     "filename": item["final_filename"],
-                    "title": item["metadata"].get("title", ""),
-                    "description": item["metadata"].get("description", ""),
-                    "keywords": item["metadata"].get("keywords", ""),
-                    "category": item["metadata"].get("category", ""),
-                })
+                    "title": meta.get("title", ""),
+                    "description": meta.get("description", ""),
+                    "keywords": keywords,
+                    "category": meta.get("category", ""),
+                }
+                logger.info("CSV row: %s", row["filename"])
+                writer.writerow(row)
     return csv_path
 
 
-def _create_zip(images_dir: Path, csv_path: str, zip_path: Path) -> Path:
-    """Pack all final JPEG images + metadata CSV into a single ZIP."""
+def _create_zip(images_dir: Path, csv_path: str, zip_path: Path) -> int:
+    """Pack all final JPEG images + metadata CSV into a single ZIP. Returns count of images added."""
+    image_count = 0
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for img_file in sorted(images_dir.glob("*.jpg")):
-            zf.write(img_file, f"images/{img_file.name}")
-            logger.info("Added to ZIP: images/%s", img_file.name)
+        # Look for all image files (jpg, jpeg, png)
+        for pattern in ["*.jpg", "*.jpeg", "*.png"]:
+            for img_file in sorted(images_dir.glob(pattern)):
+                # Skip raw/processed intermediate files, only include final clean filenames
+                if "_raw" in img_file.name or "_processed" in img_file.name or "_converted" in img_file.name or "_final" in img_file.name:
+                    continue
+                zf.write(img_file, f"images/{img_file.name}")
+                image_count += 1
+                logger.info("Added to ZIP: images/%s", img_file.name)
+
+        if os.path.exists(csv_path):
+            zf.write(csv_path, "metadata.csv")
+            logger.info("Added to ZIP: metadata.csv")
+
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    logger.info("Created ZIP: %s (%.1f MB, %d images)", zip_path, size_mb, image_count)
+    return image_count
 
         if os.path.exists(csv_path):
             zf.write(csv_path, "metadata.csv")
@@ -207,6 +234,7 @@ def generate_report(results: dict) -> str:
 
     lines.append("")
     lines.append(f"ZIP file: {results.get('zip_path', 'N/A')}")
+    lines.append(f"Images in ZIP: {results.get('images_in_zip', 'N/A')}")
     lines.append(f"Email sent: {results.get('email_sent', False)}")
     lines.append(f"Duration: {results.get('duration_seconds', 'N/A')}s")
     lines.append("")
@@ -306,10 +334,17 @@ def run_pipeline() -> dict:
     csv_path = str(ZIP_DIR / "metadata.csv")
     _create_metadata_csv(results["items"], csv_path)
 
+    # Log what's in IMAGES_DIR before creating ZIP
+    all_files = list(IMAGES_DIR.glob("*"))
+    logger.info("Files in IMAGES_DIR: %d total", len(all_files))
+    for f in all_files[:10]:
+        logger.info("  %s", f.name)
+
     timestamp_zip = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     zip_path = ZIP_DIR / f"wirestock_upload_{timestamp_zip}.zip"
-    _create_zip(IMAGES_DIR, csv_path, zip_path)
+    image_count = _create_zip(IMAGES_DIR, csv_path, zip_path)
     results["zip_path"] = str(zip_path)
+    results["images_in_zip"] = image_count
 
     elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
     results["duration_seconds"] = round(elapsed, 1)

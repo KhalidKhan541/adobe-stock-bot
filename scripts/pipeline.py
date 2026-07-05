@@ -160,14 +160,6 @@ def _create_zip(images_dir: Path, csv_path: str, zip_path: Path) -> int:
     logger.info("Created ZIP: %s (%.1f MB, %d images)", zip_path, size_mb, image_count)
     return image_count
 
-        if os.path.exists(csv_path):
-            zf.write(csv_path, "metadata.csv")
-            logger.info("Added to ZIP: metadata.csv")
-
-    size_mb = zip_path.stat().st_size / (1024 * 1024)
-    logger.info("Created ZIP: %s (%.1f MB)", zip_path, size_mb)
-    return zip_path
-
 
 def _send_email_with_zip(report: str, zip_path: Path) -> bool:
     """Send email with the ZIP file attached."""

@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://gen.pollinations.ai/image"
+BASE_URL = "https://image.pollinations.ai/prompt"
 TIMEOUT = 60
 MAX_RETRIES = 3
 RETRY_DELAY = 5

@@ -39,6 +39,13 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Health Check
+        run: |
+          python harness/health_check.py quick || {
+            echo "Health check failed — aborting pipeline"
+            exit 1
+          }
+
       - name: Run pipeline
         run: python scripts/pipeline.py
 

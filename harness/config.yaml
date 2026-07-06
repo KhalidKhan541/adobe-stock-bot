@@ -1,0 +1,108 @@
+# Pipeline Configuration — Single Source of Truth
+# ALL API URLs, keys, and limits are defined here.
+# NEVER hardcode values in pipeline scripts.
+
+# ============================================================================
+# API URLS
+# ============================================================================
+api_urls:
+  pollinations: "https://image.pollinations.ai/prompt"
+  pollinations_old: "https://gen.pollinations.ai/image"  # DEPRECATED — do not use
+  groq: "https://api.groq.com/openai/v1/chat/completions"
+  aihorde: "https://stablehorde.net/api/v2"
+
+# ============================================================================
+# API KEYS (loaded from environment variables)
+# ============================================================================
+api_keys:
+  groq: "${GROQ_API_KEY}"
+  aihorde: "${AIHORDE_API_KEY}"
+  gmail_password: "${GMAIL_APP_PASSWORD}"
+
+# ============================================================================
+# RATE LIMITS
+# ============================================================================
+rate_limits:
+  pollinations:
+    requests_per_minute: 10
+    delay_between_requests: 2  # seconds
+  groq:
+    requests_per_minute: 30
+    delay_between_requests: 1
+  aihorde:
+    requests_per_minute: 5
+    delay_between_requests: 5
+
+# ============================================================================
+# RETRY CONFIGURATION
+# ============================================================================
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+  backoff_multiplier: 2
+
+# ============================================================================
+# WIRESTOCK BOT
+# ============================================================================
+wirestock:
+  images_per_batch: 33
+  target_resolution: [3000, 3000]
+  generation_resolution: [512, 512]
+  upscale_factor: 6
+  output_format: "pdf"  # pdf or zip
+  schedule: "4x daily"
+  niches:
+    - business
+    - nature
+    - technology
+    - abstract
+    - lifestyle
+    - food
+    - travel
+    - people
+
+# ============================================================================
+# CLIPFORGE BOT
+# ============================================================================
+clipforge:
+  images_per_pack: 20
+  target_resolution: [3000, 3000]
+  generation_resolution: [1024, 1024]
+  output_format: "zip"
+  schedule: "1x daily"
+  categories:
+    - boho_florals
+    - kawaii_cute
+    - vintage_retro
+    - watercolor_elements
+    - digital_planner
+    - wedding_stationery
+    - nursery_wall_art
+    - food_illustrations
+
+# ============================================================================
+# KIDS VIDEO BOT
+# ============================================================================
+kids_video:
+  scenes_per_video: 40
+  resolution: [1920, 1080]
+  fps: 30
+  schedule: "2x daily"
+
+# ============================================================================
+# EMAIL NOTIFICATION
+# ============================================================================
+email:
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 465
+  sender: "khalid.khan46571@gmail.com"
+  recipient: "khalid.khan46571@gmail.com"
+
+# ============================================================================
+# ALERTS
+# ============================================================================
+alerts:
+  enabled: true
+  on_failure: true
+  on_success: false
+  cooldown_minutes: 60  # Don't spam alerts

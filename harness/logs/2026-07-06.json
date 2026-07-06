@@ -88,5 +88,79 @@
       "warning": false
     },
     "overall": "healthy"
+  },
+  {
+    "timestamp": "2026-07-06T12:34:13.255558",
+    "mode": "quick",
+    "apis": {
+      "pollinations": {
+        "name": "Pollinations.ai (Image Generation)",
+        "status": "ok",
+        "latency_ms": 1591,
+        "error": null
+      },
+      "groq_wirestock": {
+        "name": "Groq API (Wirestock)",
+        "status": "failed",
+        "latency_ms": 1200,
+        "error": "API key expired or invalid (401)"
+      },
+      "groq_clipforge": {
+        "name": "Groq API (ClipForge)",
+        "status": "failed",
+        "latency_ms": 1261,
+        "error": "API key expired or invalid (401)"
+      },
+      "smtp": {
+        "name": "Gmail SMTP",
+        "status": "ok",
+        "latency_ms": 1783,
+        "error": null
+      }
+    },
+    "dependencies": {},
+    "disk": {
+      "total_gb": 145.5,
+      "free_gb": 25.6,
+      "warning": false
+    },
+    "overall": "unhealthy"
+  },
+  {
+    "timestamp": "2026-07-06T12:40:58.299052",
+    "mode": "quick",
+    "apis": {
+      "pollinations": {
+        "name": "Pollinations.ai (Image Generation)",
+        "status": "ok",
+        "latency_ms": 1270,
+        "error": null
+      },
+      "groq_wirestock": {
+        "name": "Groq API (Wirestock)",
+        "status": "ok",
+        "latency_ms": 1230,
+        "error": null
+      },
+      "groq_clipforge": {
+        "name": "Groq API (ClipForge)",
+        "status": "ok",
+        "latency_ms": 961,
+        "error": null
+      },
+      "smtp": {
+        "name": "Gmail SMTP",
+        "status": "ok",
+        "latency_ms": 1422,
+        "error": null
+      }
+    },
+    "dependencies": {},
+    "disk": {
+      "total_gb": 145.5,
+      "free_gb": 25.5,
+      "warning": false
+    },
+    "overall": "healthy"
   }
 ]

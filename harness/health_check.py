@@ -31,7 +31,7 @@ APIS = {
     "groq_wirestock": {
         "name": "Groq API (Wirestock)",
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
+        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
         "json": {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
         "timeout": 15,
         "required": True,
@@ -39,7 +39,7 @@ APIS = {
     "groq_clipforge": {
         "name": "Groq API (ClipForge)",
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
+        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
         "json": {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
         "timeout": 15,
         "required": True,
@@ -55,6 +55,18 @@ APIS = {
 # ============================================================================
 # TEST FUNCTIONS
 # ============================================================================
+
+def resolve_env_vars(obj):
+    """Resolve ${ENV_VAR} references in config."""
+    if isinstance(obj, str) and obj.startswith("${") and obj.endswith("}"):
+        var_name = obj[2:-1]
+        return os.environ.get(var_name, obj)
+    elif isinstance(obj, dict):
+        return {k: resolve_env_vars(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [resolve_env_vars(item) for item in obj]
+    return obj
+
 
 def test_api(name: str, config: dict) -> dict:
     """Test a single API endpoint."""
@@ -77,8 +89,8 @@ def test_api(name: str, config: dict) -> dict:
             result["status"] = "ok"
         else:
             # Test HTTP endpoint
-            headers = config.get("headers", {})
-            json_data = config.get("json", None)
+            headers = resolve_env_vars(config.get("headers", {}))
+            json_data = resolve_env_vars(config.get("json", None))
             method = config.get("method", "GET")
             if method == "POST" or json_data:
                 resp = requests.post(

@@ -15,6 +15,9 @@ env:
   SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
   RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest

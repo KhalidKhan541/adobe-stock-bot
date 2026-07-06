@@ -362,7 +362,7 @@ def run_pipeline() -> dict:
 
             logger.info("[%d/%d] Generating metadata", idx, len(selected))
             metadata = generate_metadata(
-                prompt_text=prompt_text,
+                prompt=prompt_text,
                 title=title,
                 image_path=str(clean_final),
                 niche=niche,

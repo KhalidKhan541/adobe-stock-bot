@@ -8,6 +8,8 @@ import os
 import random
 import smtplib
 import sys
+import time
+import functools
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -29,6 +31,37 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def retry_with_backoff(max_retries=3, base_delay=2, max_delay=30):
+    """Retry decorator with exponential backoff."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    print(f"  Attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"  Retrying in {delay}s...")
+                        time.sleep(delay)
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+@retry_with_backoff(max_retries=3, base_delay=5)
+def generate_image_with_retry(prompt_text, raw_path, gen_width, gen_height):
+    from scripts.image_generator import generate_image
+    success = generate_image(prompt_text, str(raw_path), width=gen_width, height=gen_height)
+    if not success:
+        raise RuntimeError("Image generation failed")
+    return True
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -346,9 +379,7 @@ def run_pipeline() -> dict:
             raw_path = IMAGES_DIR / f"{safe_name}_raw.png"
             gen_width = config.get("generation_resolution", {}).get("width", 2048)
             gen_height = config.get("generation_resolution", {}).get("height", 2048)
-            success = generate_image(prompt_text, str(raw_path), width=gen_width, height=gen_height)
-            if not success:
-                raise RuntimeError("Image generation failed")
+            generate_image_with_retry(prompt_text, raw_path, gen_width, gen_height)
 
             logger.info("[%d/%d] Processing image", idx, len(selected))
             processed = process_image(str(raw_path), str(IMAGES_DIR))

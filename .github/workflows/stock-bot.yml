@@ -40,9 +40,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Health Check
-        env:
-          GROQ_API_KEY: ${{ env.GROQ_API_KEY }}
         run: |
+          echo "GROQ_API_KEY is set: ${GROQ_API_KEY:0:10}..."
           python harness/health_check.py quick || {
             echo "Health check failed — aborting pipeline"
             exit 1

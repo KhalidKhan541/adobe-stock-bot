@@ -162,5 +162,42 @@
       "warning": false
     },
     "overall": "healthy"
+  },
+  {
+    "timestamp": "2026-07-06T12:49:10.942789",
+    "mode": "quick",
+    "apis": {
+      "pollinations": {
+        "name": "Pollinations.ai (Image Generation)",
+        "status": "ok",
+        "latency_ms": 1561,
+        "error": null
+      },
+      "groq_wirestock": {
+        "name": "Groq API (Wirestock)",
+        "status": "ok",
+        "latency_ms": 1111,
+        "error": null
+      },
+      "groq_clipforge": {
+        "name": "Groq API (ClipForge)",
+        "status": "ok",
+        "latency_ms": 991,
+        "error": null
+      },
+      "smtp": {
+        "name": "Gmail SMTP",
+        "status": "ok",
+        "latency_ms": 1721,
+        "error": null
+      }
+    },
+    "dependencies": {},
+    "disk": {
+      "total_gb": 145.5,
+      "free_gb": 25.5,
+      "warning": false
+    },
+    "overall": "healthy"
   }
 ]

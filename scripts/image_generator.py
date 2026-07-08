@@ -33,8 +33,8 @@ def _rate_limit():
 def generate_image(
     prompt: str,
     output_path: str,
-    width: int = 1024,
-    height: int = 1024,
+    width: int = 2048,
+    height: int = 2048,
 ) -> bool:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
@@ -121,8 +121,8 @@ def generate_batch(
     for i, entry in enumerate(prompts, 1):
         prompt = entry["prompt"]
         filename = entry.get("filename", f"image_{i:04d}.jpg")
-        width = entry.get("width", 1024)
-        height = entry.get("height", 1024)
+        width = entry.get("width", 2048)
+        height = entry.get("height", 2048)
 
         if not os.path.splitext(filename)[1]:
             filename += ".jpg"

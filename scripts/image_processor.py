@@ -5,9 +5,9 @@ from PIL import Image, ImageFilter, ImageOps
 
 logger = logging.getLogger(__name__)
 
-MIN_MP = 6_000_000
-MIN_WIDTH = 3000
-MIN_HEIGHT = 3000
+MIN_MP = 24_000_000
+MIN_WIDTH = 5000
+MIN_HEIGHT = 5000
 MIN_QUALITY = 90
 MAX_QUALITY = 100
 SUPPORTED_FORMATS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"}

@@ -71,7 +71,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 IMAGES_DIR = OUTPUT_DIR / "images"
 ZIP_DIR = OUTPUT_DIR / "zip"
 
-TARGET_PROMPT_COUNT = 33
+DEFAULT_IMAGE_COUNT = 10
 
 
 def _load_config() -> dict:
@@ -323,7 +323,10 @@ def generate_report(results: dict) -> str:
     return "\n".join(lines)
 
 
-def run_pipeline() -> dict:
+def run_pipeline(images: int = None) -> dict:
+    if images is None:
+        images = DEFAULT_IMAGE_COUNT
+    logger.info("Starting pipeline — generating %d images", images)
     _ensure_dirs()
 
     results = {
@@ -355,7 +358,7 @@ def run_pipeline() -> dict:
         _append_log(results)
         return results
 
-    selected = _select_balanced_prompts(prompts, TARGET_PROMPT_COUNT)
+    selected = _select_balanced_prompts(prompts, images)
     results["total"] = len(selected)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -449,4 +452,8 @@ def run_pipeline() -> dict:
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    import argparse
+    parser = argparse.ArgumentParser(description="Wirestock Image Pipeline")
+    parser.add_argument("--images", type=int, default=10, help="Number of images to generate (default: 10)")
+    args = parser.parse_args()
+    run_pipeline(images=args.images)

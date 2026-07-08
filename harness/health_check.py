@@ -31,18 +31,18 @@ APIS = {
     "groq_wirestock": {
         "name": "Groq API (Wirestock)",
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
+        "headers": {"Authorization": "Bearer ${GROQ_API_KEY}", "Content-Type": "application/json"},
         "json": {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
         "timeout": 15,
-        "required": True,
+        "required": False,
     },
     "groq_clipforge": {
         "name": "Groq API (ClipForge)",
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "headers": {"Authorization": "Bearer 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", "Content-Type": "application/json"},
+        "headers": {"Authorization": "Bearer ${GROQ_API_KEY}", "Content-Type": "application/json"},
         "json": {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
         "timeout": 15,
-        "required": True,
+        "required": False,
     },
     "smtp": {
         "name": "Gmail SMTP",

@@ -47,13 +47,13 @@ jobs:
             exit 1
           }
 
-      - name: Run pipeline
-        run: python scripts/pipeline.py
+      - name: Run pipeline (10 images)
+        run: python scripts/pipeline.py --images 10
 
       - name: Commit updated logs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/stock_log.json
+          git add -f data/stock_log.json || true
           git diff --cached --quiet || git commit -m "Update stock logs [skip ci]"
           git push

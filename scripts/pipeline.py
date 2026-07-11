@@ -23,7 +23,7 @@ from reportlab.pdfgen import canvas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.image_generator import generate_image
-from scripts.image_processor import process_image
+from scripts.image_processor import process_image, PDF_QUALITY
 from scripts.metadata_generator import generate_metadata
 
 logging.basicConfig(
@@ -175,6 +175,8 @@ def _create_metadata_csv(items: list[dict], csv_path: str) -> str:
 
 def _create_pdf(images_dir: Path, csv_path: str, pdf_path: Path) -> int:
     """Pack all final JPEG images into a single PDF with metadata. Returns count of images added."""
+    from PIL import Image as PILImage
+
     image_count = 0
     image_files = []
 
@@ -199,55 +201,106 @@ def _create_pdf(images_dir: Path, csv_path: str, pdf_path: Path) -> int:
     c = canvas.Canvas(str(pdf_path), pagesize=A4)
     page_width, page_height = A4
 
-    for img_file in image_files:
-        try:
-            # Add image to PDF
-            img_filename = img_file.name
-            meta = metadata.get(img_filename, {})
+    tmp_dir = pdf_path.parent / "_pdf_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
-            # Draw image centered on page
-            from PIL import Image as PILImage
-            with PILImage.open(img_file) as img:
-                img_width, img_height = img.size
+    try:
+        for img_file in image_files:
+            try:
+                img_filename = img_file.name
+                meta = metadata.get(img_filename, {})
 
-            # Scale to fit page with margins
-            max_width = page_width - 2 * inch
-            max_height = page_height - 3 * inch
-            scale = min(max_width / img_width, max_height / img_height)
-            draw_width = img_width * scale
-            draw_height = img_height * scale
+                with PILImage.open(img_file) as img:
+                    img_width, img_height = img.size
 
-            x = (page_width - draw_width) / 2
-            y = page_height - inch - draw_height
+                    # Re-encode at lower quality for PDF embedding
+                    if img.mode in ("RGBA", "LA", "PA"):
+                        background = PILImage.new("RGB", img.size, (255, 255, 255))
+                        if img.mode == "RGBA":
+                            background.paste(img, mask=img.split()[-1])
+                        else:
+                            background.paste(img)
+                        img = background
+                    elif img.mode != "RGB":
+                        img = img.convert("RGB")
 
-            c.drawImage(str(img_file), x, y, draw_width, draw_height)
+                    tmp_img = tmp_dir / f"pdf_{img_filename}"
+                    img.save(
+                        str(tmp_img),
+                        format="JPEG",
+                        quality=PDF_QUALITY,
+                        subsampling=2,
+                        optimize=True,
+                    )
 
-            # Add metadata text below image
-            text_y = y - 0.3 * inch
-            c.setFont("Helvetica-Bold", 10)
-            title = meta.get("title", img_filename)
-            c.drawString(inch, text_y, f"Title: {title[:80]}")
+                # Scale to fit page with margins
+                max_width = page_width - 2 * inch
+                max_height = page_height - 3 * inch
+                scale = min(max_width / img_width, max_height / img_height)
+                draw_width = img_width * scale
+                draw_height = img_height * scale
 
-            text_y -= 0.2 * inch
-            c.setFont("Helvetica", 8)
-            keywords = meta.get("keywords", "")
-            c.drawString(inch, text_y, f"Keywords: {keywords[:100]}")
+                x = (page_width - draw_width) / 2
+                y = page_height - inch - draw_height
 
-            text_y -= 0.2 * inch
-            category = meta.get("category", "")
-            c.drawString(inch, text_y, f"Category: {category}")
+                c.drawImage(str(tmp_img), x, y, draw_width, draw_height)
 
-            c.showPage()
-            image_count += 1
-            logger.info("Added to PDF: %s", img_filename)
+                # Add metadata text below image
+                text_y = y - 0.3 * inch
+                c.setFont("Helvetica-Bold", 10)
+                title = meta.get("title", img_filename)
+                c.drawString(inch, text_y, f"Title: {title[:80]}")
 
-        except Exception as exc:
-            logger.error("Failed to add %s to PDF: %s", img_file, exc)
+                text_y -= 0.2 * inch
+                c.setFont("Helvetica", 8)
+                keywords = meta.get("keywords", "")
+                c.drawString(inch, text_y, f"Keywords: {keywords[:100]}")
 
-    c.save()
+                text_y -= 0.2 * inch
+                category = meta.get("category", "")
+                c.drawString(inch, text_y, f"Category: {category}")
+
+                c.showPage()
+                image_count += 1
+                logger.info("Added to PDF: %s (quality=%d)", img_filename, PDF_QUALITY)
+
+            except Exception as exc:
+                logger.error("Failed to add %s to PDF: %s", img_file, exc)
+
+        c.save()
+    finally:
+        # Clean up temp files
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Try to compress PDF further with pikepdf if available
+    _compress_pdf(pdf_path)
+
     size_mb = pdf_path.stat().st_size / (1024 * 1024)
     logger.info("Created PDF: %s (%.1f MB, %d images)", pdf_path, size_mb, image_count)
     return image_count
+
+
+def _compress_pdf(pdf_path: Path) -> None:
+    """Attempt to further compress the PDF using pikepdf if available."""
+    try:
+        import pikepdf
+        compressed_path = pdf_path.with_suffix(".pdf.compressed")
+        with pikepdf.open(str(pdf_path)) as pdf:
+            pdf.save(
+                str(compressed_path),
+                compress_streams=True,
+                object_stream_mode=pikepdf.ObjectStreamMode.generate,
+                recompress_flate=True,
+            )
+        os.replace(str(compressed_path), str(pdf_path))
+        logger.info("PDF compressed with pikepdf")
+    except ImportError:
+        logger.debug("pikepdf not installed, skipping additional PDF compression")
+    except Exception as exc:
+        logger.warning("pikepdf compression failed: %s", exc)
+        if compressed_path.exists():
+            compressed_path.unlink(missing_ok=True)
 
 
 def _send_email_with_pdf(report: str, pdf_path: Path) -> bool:

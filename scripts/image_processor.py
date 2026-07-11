@@ -9,6 +9,7 @@ MIN_MP = 24_000_000
 MIN_WIDTH = 5000
 MIN_HEIGHT = 5000
 MIN_QUALITY = 90
+PDF_QUALITY = 75
 MAX_QUALITY = 100
 SUPPORTED_FORMATS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"}
 

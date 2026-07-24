@@ -1,5 +1,5 @@
 output/
-data/
+data/stock_log.json
 __pycache__/
 *.pyc
 .env

@@ -30,6 +30,121 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Niches for Wirestock
+NICHES = [
+    "AI and human collaboration in workplace",
+    "Sustainable living and eco-friendly lifestyle",
+    "Mental wellness and mindfulness"
+]
+
+USED_PROMPTS_PATH = Path(__file__).resolve().parent.parent / "data" / "used_prompts.json"
+
+
+def _load_used_prompts() -> list[str]:
+    """Load list of previously used prompts to avoid duplicates."""
+    if USED_PROMPTS_PATH.exists():
+        with open(USED_PROMPTS_PATH, "r") as f:
+            return json.load(f)
+    return []
+
+
+def _save_used_prompts(prompts: list[str]) -> None:
+    """Save used prompts to file."""
+    USED_PROMPTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(USED_PROMPTS_PATH, "w") as f:
+        json.dump(prompts, f, indent=2)
+
+
+def _generate_prompts_with_groq(niche: str, count: int, used_prompts: list[str]) -> list[dict]:
+    """Generate unique prompts using Groq API."""
+    import requests
+    
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        logger.error("GROQ_API_KEY not set")
+        return []
+    
+    used_text = "\n".join(f"- {p}" for p in used_prompts[-50:]) if used_prompts else "None yet"
+    
+    system_prompt = f"""You are a stock photography prompt generator. Generate {count} unique, detailed prompts for AI image generation.
+
+NICHE: {niche}
+
+REQUIREMENTS:
+- Each prompt must be a single sentence describing a realistic stock photo
+- Include specific details: lighting, composition, people diversity, setting
+- NO duplicates with previously used prompts
+- Images must be Wirestock-approved: sharp, well-lit, authentic feel
+- Include diverse people (different ages, ethnicities, genders)
+- Focus on commercial appeal (businesses would buy these)
+
+PREVIOUSLY USED PROMPTS (DO NOT DUPLICATE):
+{used_text}
+
+OUTPUT FORMAT (JSON array):
+[
+  {{"title": "Short title", "prompt": "Detailed prompt sentence", "niche": "{niche}"}},
+  ...
+]
+
+Generate exactly {count} prompts. Output ONLY valid JSON, no other text."""
+
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Generate {count} unique stock photography prompts for: {niche}"}
+                ],
+                "temperature": 0.9,
+                "max_tokens": 4000
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+        
+        content = response.json()["choices"][0]["message"]["content"]
+        
+        # Extract JSON from response
+        import re
+        json_match = re.search(r'\[.*\]', content, re.DOTALL)
+        if json_match:
+            prompts = json.loads(json_match.group())
+            logger.info("Generated %d prompts for niche: %s", len(prompts), niche)
+            return prompts
+        else:
+            logger.error("No JSON array found in Groq response")
+            return []
+            
+    except Exception as e:
+        logger.error("Failed to generate prompts: %s", e)
+        return []
+
+
+def _generate_all_prompts(count_per_niche: int = 50) -> list[dict]:
+    """Generate prompts for all niches, avoiding duplicates."""
+    used_prompts = _load_used_prompts()
+    all_prompts = []
+    
+    for niche in NICHES:
+        prompts = _generate_prompts_with_groq(niche, count_per_niche, used_prompts)
+        all_prompts.extend(prompts)
+        # Add generated prompts to used list
+        for p in prompts:
+            used_prompts.append(p.get("prompt", ""))
+    
+    # Save all used prompts
+    _save_used_prompts(used_prompts)
+    
+    logger.info("Total prompts generated: %d", len(all_prompts))
+    return all_prompts
+
 
 def retry_with_backoff(max_retries=3, base_delay=2, max_delay=30):
     """Retry decorator with exponential backoff."""
@@ -305,12 +420,13 @@ def run_pipeline(images: int = None) -> dict:
         return results
 
     try:
-        prompts = _load_prompt_library()
+        prompts = _generate_all_prompts(count_per_niche=50)
+        if not prompts:
+            logger.warning("Dynamic generation returned empty, falling back to static library")
+            prompts = _load_prompt_library()
     except Exception as exc:
-        logger.error("Failed to load prompt library: %s", exc)
-        results["items"].append({"status": "error", "title": "prompt_load", "error": str(exc)})
-        _append_log(results)
-        return results
+        logger.warning("Dynamic generation failed (%s), falling back to static library", exc)
+        prompts = _load_prompt_library()
 
     selected = _select_balanced_prompts(prompts, images)
     results["total"] = len(selected)

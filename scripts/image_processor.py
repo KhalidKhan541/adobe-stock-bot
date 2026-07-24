@@ -5,9 +5,9 @@ from PIL import Image, ImageFilter, ImageOps
 
 logger = logging.getLogger(__name__)
 
-MIN_MP = 24_000_000
-MIN_WIDTH = 5000
-MIN_HEIGHT = 5000
+MIN_MP = 0
+MIN_WIDTH = 0
+MIN_HEIGHT = 0
 MIN_QUALITY = 90
 PDF_QUALITY = 75
 MAX_QUALITY = 100
@@ -51,26 +51,9 @@ def upscale_image(
     target_width: int = MIN_WIDTH,
     target_height: int = MIN_HEIGHT,
 ) -> bool:
-    """Upscale image using Lanczos resampling to maintain quality."""
+    """Convert image to JPEG without upscaling."""
     try:
         img = Image.open(input_path)
-
-        width, height = img.size
-        current_mp = width * height
-
-        if width >= target_width and height >= target_height:
-            img.save(output_path, format="JPEG", quality=95, subsampling=0, optimize=True)
-            logger.info("Image already meets resolution: %s", input_path)
-            return True
-
-        scale_w = target_width / width
-        scale_h = target_height / height
-        scale = max(scale_w, scale_h)
-
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-
-        img = img.resize((new_width, new_height), Image.LANCZOS)
 
         if img.mode in ("RGBA", "LA", "PA"):
             background = Image.new("RGB", img.size, (255, 255, 255))
@@ -83,13 +66,10 @@ def upscale_image(
             img = img.convert("RGB")
 
         img.save(output_path, format="JPEG", quality=95, subsampling=0, optimize=True)
-        logger.info(
-            "Upscaled %s (%dx%d) -> %s (%dx%d)",
-            input_path, width, height, output_path, new_width, new_height,
-        )
+        logger.info("Converted %s -> %s (no upscale)", input_path, output_path)
         return True
     except Exception:
-        logger.exception("Failed to upscale %s", input_path)
+        logger.exception("Failed to convert %s", input_path)
         return False
 
 

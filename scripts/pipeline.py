@@ -1,4 +1,4 @@
-"""Main pipeline orchestrator — generates images + metadata, packs into Wirestock-ready PDF."""
+"""Main pipeline orchestrator — generates images + metadata, packs into Wirestock-ready ZIP."""
 
 import csv
 import io
@@ -10,20 +10,18 @@ import smtplib
 import sys
 import time
 import functools
+import zipfile
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 from pathlib import Path
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import inch
-from reportlab.pdfgen import canvas
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.image_generator import generate_image
-from scripts.image_processor import process_image, PDF_QUALITY
+from scripts.image_processor import process_image
 from scripts.metadata_generator import generate_metadata
 
 logging.basicConfig(
@@ -71,7 +69,7 @@ OUTPUT_DIR = BASE_DIR / "output"
 IMAGES_DIR = OUTPUT_DIR / "images"
 ZIP_DIR = OUTPUT_DIR / "zip"
 
-DEFAULT_IMAGE_COUNT = 10
+DEFAULT_IMAGE_COUNT = 50
 
 
 def _load_config() -> dict:
@@ -173,10 +171,8 @@ def _create_metadata_csv(items: list[dict], csv_path: str) -> str:
     return csv_path
 
 
-def _create_pdf(images_dir: Path, csv_path: str, pdf_path: Path) -> int:
-    """Pack all final JPEG images into a single PDF with metadata. Returns count of images added."""
-    from PIL import Image as PILImage
-
+def _create_zip(images_dir: Path, csv_path: str, zip_path: Path) -> int:
+    """Pack all final JPEG images + metadata CSV into a ZIP file. Returns count of images added."""
     image_count = 0
     image_files = []
 
@@ -187,124 +183,29 @@ def _create_pdf(images_dir: Path, csv_path: str, pdf_path: Path) -> int:
             image_files.append(img_file)
 
     if not image_files:
-        logger.warning("No images found to add to PDF")
+        logger.warning("No images found to add to ZIP")
         return 0
 
-    # Load metadata from CSV
-    metadata = {}
-    if os.path.exists(csv_path):
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                metadata[row.get("filename", "")] = row
+    with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+        if os.path.exists(csv_path):
+            zf.write(csv_path, "metadata.csv")
+            logger.info("Added metadata.csv to ZIP")
 
-    c = canvas.Canvas(str(pdf_path), pagesize=A4)
-    page_width, page_height = A4
-
-    tmp_dir = pdf_path.parent / "_pdf_tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
         for img_file in image_files:
             try:
-                img_filename = img_file.name
-                meta = metadata.get(img_filename, {})
-
-                with PILImage.open(img_file) as img:
-                    img_width, img_height = img.size
-
-                    # Re-encode at lower quality for PDF embedding
-                    if img.mode in ("RGBA", "LA", "PA"):
-                        background = PILImage.new("RGB", img.size, (255, 255, 255))
-                        if img.mode == "RGBA":
-                            background.paste(img, mask=img.split()[-1])
-                        else:
-                            background.paste(img)
-                        img = background
-                    elif img.mode != "RGB":
-                        img = img.convert("RGB")
-
-                    tmp_img = tmp_dir / f"pdf_{img_filename}"
-                    img.save(
-                        str(tmp_img),
-                        format="JPEG",
-                        quality=PDF_QUALITY,
-                        subsampling=2,
-                        optimize=True,
-                    )
-
-                # Scale to fit page with margins
-                max_width = page_width - 2 * inch
-                max_height = page_height - 3 * inch
-                scale = min(max_width / img_width, max_height / img_height)
-                draw_width = img_width * scale
-                draw_height = img_height * scale
-
-                x = (page_width - draw_width) / 2
-                y = page_height - inch - draw_height
-
-                c.drawImage(str(tmp_img), x, y, draw_width, draw_height)
-
-                # Add metadata text below image
-                text_y = y - 0.3 * inch
-                c.setFont("Helvetica-Bold", 10)
-                title = meta.get("title", img_filename)
-                c.drawString(inch, text_y, f"Title: {title[:80]}")
-
-                text_y -= 0.2 * inch
-                c.setFont("Helvetica", 8)
-                keywords = meta.get("keywords", "")
-                c.drawString(inch, text_y, f"Keywords: {keywords[:100]}")
-
-                text_y -= 0.2 * inch
-                category = meta.get("category", "")
-                c.drawString(inch, text_y, f"Category: {category}")
-
-                c.showPage()
+                zf.write(str(img_file), img_file.name)
                 image_count += 1
-                logger.info("Added to PDF: %s (quality=%d)", img_filename, PDF_QUALITY)
-
+                logger.info("Added to ZIP: %s", img_file.name)
             except Exception as exc:
-                logger.error("Failed to add %s to PDF: %s", img_file, exc)
+                logger.error("Failed to add %s to ZIP: %s", img_file, exc)
 
-        c.save()
-    finally:
-        # Clean up temp files
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    # Try to compress PDF further with pikepdf if available
-    _compress_pdf(pdf_path)
-
-    size_mb = pdf_path.stat().st_size / (1024 * 1024)
-    logger.info("Created PDF: %s (%.1f MB, %d images)", pdf_path, size_mb, image_count)
+    size_mb = zip_path.stat().st_size / (1024 * 1024)
+    logger.info("Created ZIP: %s (%.1f MB, %d images)", zip_path, size_mb, image_count)
     return image_count
 
 
-def _compress_pdf(pdf_path: Path) -> None:
-    """Attempt to further compress the PDF using pikepdf if available."""
-    try:
-        import pikepdf
-        compressed_path = pdf_path.with_suffix(".pdf.compressed")
-        with pikepdf.open(str(pdf_path)) as pdf:
-            pdf.save(
-                str(compressed_path),
-                compress_streams=True,
-                object_stream_mode=pikepdf.ObjectStreamMode.generate,
-                recompress_flate=True,
-            )
-        os.replace(str(compressed_path), str(pdf_path))
-        logger.info("PDF compressed with pikepdf")
-    except ImportError:
-        logger.debug("pikepdf not installed, skipping additional PDF compression")
-    except Exception as exc:
-        logger.warning("pikepdf compression failed: %s", exc)
-        if compressed_path.exists():
-            compressed_path.unlink(missing_ok=True)
-
-
-def _send_email_with_pdf(report: str, pdf_path: Path) -> bool:
-    """Send email with the PDF file attached."""
+def _send_email_with_zip(report: str, zip_path: Path) -> bool:
+    """Send email with the ZIP file attached."""
     sender = os.environ["SENDER_EMAIL"]
     recipient = os.environ["RECIPIENT_EMAIL"]
     password = os.environ["GMAIL_APP_PASSWORD"]
@@ -321,25 +222,25 @@ def _send_email_with_pdf(report: str, pdf_path: Path) -> bool:
 INSTRUCTIONS:
 1. Log in to wirestock.io
 2. Click Upload
-3. Select images from this PDF package
+3. Select images from this ZIP package
 4. Wirestock will auto-distribute to Shutterstock, Adobe Stock, Getty, Alamy, Freepik
 
 Your images are ready to upload!
 """
     msg.attach(MIMEText(body, "plain"))
 
-    with open(pdf_path, "rb") as f:
-        part = MIMEBase("application", "pdf")
+    with open(zip_path, "rb") as f:
+        part = MIMEBase("application", "zip")
         part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f"attachment; filename={pdf_path.name}")
+        part.add_header("Content-Disposition", f"attachment; filename={zip_path.name}")
         msg.attach(part)
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender, password)
             server.sendmail(sender, recipient, msg.as_string())
-        logger.info("Email with PDF sent to %s", recipient)
+        logger.info("Email with ZIP sent to %s", recipient)
         return True
     except Exception as exc:
         logger.error("Failed to send email: %s", exc)
@@ -367,8 +268,8 @@ def generate_report(results: dict) -> str:
             lines.append(f"       Error: {item['error']}")
 
     lines.append("")
-    lines.append(f"PDF file: {results.get('pdf_path', 'N/A')}")
-    lines.append(f"Images in PDF: {results.get('images_in_pdf', 'N/A')}")
+    lines.append(f"ZIP file: {results.get('zip_path', 'N/A')}")
+    lines.append(f"Images in ZIP: {results.get('images_in_zip', 'N/A')}")
     lines.append(f"Email sent: {results.get('email_sent', False)}")
     lines.append(f"Duration: {results.get('duration_seconds', 'N/A')}s")
     lines.append("")
@@ -388,7 +289,7 @@ def run_pipeline(images: int = None) -> dict:
         "success": 0,
         "failed": 0,
         "items": [],
-        "pdf_path": None,
+        "zip_path": None,
         "email_sent": False,
         "duration_seconds": 0,
     }
@@ -469,17 +370,17 @@ def run_pipeline(images: int = None) -> dict:
     csv_path = str(ZIP_DIR / "metadata.csv")
     _create_metadata_csv(results["items"], csv_path)
 
-    # Log what's in IMAGES_DIR before creating PDF
+    # Log what's in IMAGES_DIR before creating ZIP
     all_files = list(IMAGES_DIR.glob("*"))
     logger.info("Files in IMAGES_DIR: %d total", len(all_files))
     for f in all_files[:10]:
         logger.info("  %s", f.name)
 
-    timestamp_pdf = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    pdf_path = ZIP_DIR / f"wirestock_upload_{timestamp_pdf}.pdf"
-    image_count = _create_pdf(IMAGES_DIR, csv_path, pdf_path)
-    results["pdf_path"] = str(pdf_path)
-    results["images_in_pdf"] = image_count
+    timestamp_zip = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    zip_path = ZIP_DIR / f"wirestock_upload_{timestamp_zip}.zip"
+    image_count = _create_zip(IMAGES_DIR, csv_path, zip_path)
+    results["zip_path"] = str(zip_path)
+    results["images_in_zip"] = image_count
 
     elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
     results["duration_seconds"] = round(elapsed, 1)
@@ -488,7 +389,7 @@ def run_pipeline(images: int = None) -> dict:
     logger.info("\n%s", report)
 
     try:
-        results["email_sent"] = _send_email_with_pdf(report, pdf_path)
+        results["email_sent"] = _send_email_with_zip(report, zip_path)
     except Exception as exc:
         logger.error("Email failed: %s", exc)
         results["email_sent"] = False
@@ -507,6 +408,6 @@ def run_pipeline(images: int = None) -> dict:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Wirestock Image Pipeline")
-    parser.add_argument("--images", type=int, default=10, help="Number of images to generate (default: 10)")
+    parser.add_argument("--images", type=int, default=50, help="Number of images to generate (default: 50)")
     args = parser.parse_args()
     run_pipeline(images=args.images)

@@ -47,8 +47,8 @@ jobs:
             exit 1
           }
 
-      - name: Run pipeline (10 images)
-        run: python scripts/pipeline.py --images 10
+      - name: Run pipeline (50 images)
+        run: python scripts/pipeline.py --images 50
 
       - name: Commit updated logs
         run: |
